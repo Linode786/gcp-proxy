@@ -12,57 +12,9 @@ MIN_INSTANCES="${MIN_INSTANCES:-0}"
 MAX_INSTANCES="${MAX_INSTANCES:-8}"
 TIMEOUT="${TIMEOUT:-3600}"
 
-read_service_name() {
-  read -r -p "Enter Cloud Run service name [$SERVICE_NAME]: " input_service_name
-  SERVICE_NAME="${input_service_name:-$SERVICE_NAME}"
-}
-
-choose_region() {
-  echo "Choose Cloud Run region:"
-  echo "1) us-east1            United States, Qwiklabs friendly"
-  echo "2) us-central1         United States"
-  echo "3) europe-west1        Europe"
-  echo "4) asia-southeast1     Singapore"
-  echo "5) asia-southeast2     Jakarta"
-  echo "6) me-central1         Doha"
-  read -r -p "Enter 1, 2, 3, 4, 5, or 6 [$DEFAULT_REGION]: " choice
-
-  case "$choice" in
-    1) REGION="us-east1" ;;
-    2) REGION="us-central1" ;;
-    3) REGION="europe-west1" ;;
-    4) REGION="asia-southeast1" ;;
-    5) REGION="asia-southeast2" ;;
-    6) REGION="me-central1" ;;
-    *) REGION="$DEFAULT_REGION" ;;
-  esac
-}
-
 read_backend_config() {
   read -r -p "Enter backend server [$BACKEND]: " input_backend
   BACKEND="${input_backend:-$BACKEND}"
-}
-
-read_runtime_settings() {
-  echo "Runtime settings:"
-
-  read -r -p "Memory [$MEMORY]: " input_memory
-  MEMORY="${input_memory:-$MEMORY}"
-
-  read -r -p "CPU [$CPU]: " input_cpu
-  CPU="${input_cpu:-$CPU}"
-
-  read -r -p "Concurrency [$CONCURRENCY]: " input_concurrency
-  CONCURRENCY="${input_concurrency:-$CONCURRENCY}"
-
-  read -r -p "Min instances [$MIN_INSTANCES]: " input_min_instances
-  MIN_INSTANCES="${input_min_instances:-$MIN_INSTANCES}"
-
-  read -r -p "Max instances [$MAX_INSTANCES]: " input_max_instances
-  MAX_INSTANCES="${input_max_instances:-$MAX_INSTANCES}"
-
-  read -r -p "Timeout seconds [$TIMEOUT]: " input_timeout
-  TIMEOUT="${input_timeout:-$TIMEOUT}"
 }
 
 image_name() {
@@ -137,41 +89,6 @@ update_config_only() {
     --set-env-vars "BACKEND=$BACKEND"
 }
 
-test_service() {
-  if ! service_exists; then
-    echo "Service [$SERVICE_NAME] was not found in region [$REGION]."
-    echo "Choose option 1 first to install/redeploy the service."
-    return 0
-  fi
-
-  url="$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format="value(status.url)")"
-  echo "Testing $url"
-  echo
-
-  code="$(curl --http1.1 -k -s -o /dev/null -w "%{http_code}" "$url")"
-  echo "OVPN HTTP check -> $code"
-
-  code="$(curl --http1.1 -k -s -o /dev/null -w "%{http_code}" \
-    -H "Connection: Upgrade" \
-    -H "Upgrade: websocket" \
-    -H "Sec-WebSocket-Version: 13" \
-    -H "Sec-WebSocket-Key: SGVsbG8sIHdvcmxkIQ==" \
-    "$url")"
-  echo "OVPN WebSocket check -> $code"
-}
-
-show_logs() {
-  if ! service_exists; then
-    echo "Service [$SERVICE_NAME] was not found in region [$REGION]."
-    echo "Choose option 1 first to install/redeploy the service."
-    return 0
-  fi
-
-  gcloud run services logs read "$SERVICE_NAME" \
-    --region "$REGION" \
-    --limit 50
-}
-
 delete_all() {
   if ! service_exists; then
     echo "Service [$SERVICE_NAME] was not found in region [$REGION]. Nothing to delete."
@@ -198,24 +115,19 @@ while true; do
 
   case "$action" in
     1)
-      read_service_name
-      choose_region
-      read_backend_config
-      read_runtime_settings
+      REGION="$DEFAULT_REGION"
       enable_services
       ensure_repo
       build_image
       deploy_service
       ;;
     2)
-      read_service_name
-      choose_region
+      REGION="$DEFAULT_REGION"
       read_backend_config
       update_config_only
       ;;
     3)
-      read_service_name
-      choose_region
+      REGION="$DEFAULT_REGION"
       delete_all
       ;;
     4)
