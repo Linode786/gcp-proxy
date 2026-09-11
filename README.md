@@ -1,5 +1,5 @@
 # Kaldag OVPN CloudRun
 
 ```bash
-rm -rf gcp && git clone https://github.com/Linode786/gcp.git && cd gcp && chmod +x deploy.sh && ./deploy.sh
+rm -rf gcp-proxy && git clone https://github.com/Linode786/gcp-proxy.git && cd gcp-proxy && chmod +x deploy.sh && ./deploy.sh
 ```
