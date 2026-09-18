@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SERVICE_NAME="viper-panel"
+SERVICE_NAME="erwan"
 REPO_NAME="viper-panel-repo"
 DEFAULT_REGION="us-central1"
 BACKEND="gcpx.dev-zoom.buzz:700"
-MEMORY="8Gi"
-CPU="4"
-CONCURRENCY="1000"
+MEMORY="512Mi"
+CPU="1"
+CONCURRENCY="50"
 MIN_INSTANCES="1"
-MAX_INSTANCES="4"
-TIMEOUT="3600"
+MAX_INSTANCES="16"
+TIMEOUT="600"
 
 read_backend_config() {
   read -r -p "Enter backend server [$BACKEND]: " input_backend
