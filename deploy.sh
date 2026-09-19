@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SERVICE_NAMES=("erwan1" "erwan2")
+
 REPO_NAME="viper-panel-repo"
 DEFAULT_REGION="us-central1"
 BACKEND="gcpx.dev-zoom.buzz:700"
@@ -19,27 +20,15 @@ CPU_TARGET="0.70"
 CONCURRENCY_TARGET="0.40"
 
 
-read_backend_config() {
-  read -r -p "Enter backend server [$BACKEND]: " input_backend
-  BACKEND="${input_backend:-$BACKEND}"
-}
-
-
 image_name() {
   IMAGE="$REGION-docker.pkg.dev/$GOOGLE_CLOUD_PROJECT/$REPO_NAME/erwan:latest"
 }
 
 
-service_exists() {
-  local service_name="$1"
-
-  gcloud run services describe "$service_name" \
-    --region "$REGION" \
-    --format="value(metadata.name)" >/dev/null 2>&1
-}
-
-
 enable_services() {
+  echo
+  echo "Enabling required Google Cloud services..."
+
   gcloud services enable \
     run.googleapis.com \
     cloudbuild.googleapis.com \
@@ -50,19 +39,27 @@ enable_services() {
 ensure_repo() {
   if gcloud artifacts repositories describe "$REPO_NAME" \
     --location="$REGION" >/dev/null 2>&1; then
+
+    echo "Artifact Registry repository [$REPO_NAME] already exists."
     return 0
   fi
+
+  echo
+  echo "Creating Artifact Registry repository [$REPO_NAME]..."
 
   gcloud artifacts repositories create "$REPO_NAME" \
     --repository-format=docker \
     --location="$REGION" \
     --description="Cloud Run proxy images"
 
+  echo
   echo "Waiting for Artifact Registry repository..."
 
   for _ in 1 2 3 4 5 6 7 8 9 10; do
     if gcloud artifacts repositories describe "$REPO_NAME" \
       --location="$REGION" >/dev/null 2>&1; then
+
+      echo "Artifact Registry repository is ready."
       return 0
     fi
 
@@ -70,13 +67,20 @@ ensure_repo() {
   done
 
   echo "Repository [$REPO_NAME] was created but is not ready yet."
-  echo "Run deploy again in a few seconds."
+  echo "Run the deployment again in a few seconds."
   exit 1
 }
 
 
 build_image() {
   image_name
+
+  echo
+  echo "=========================================="
+  echo "Building Docker image"
+  echo "=========================================="
+  echo "Image: $IMAGE"
+  echo
 
   gcloud builds submit \
     --tag "$IMAGE"
@@ -89,9 +93,20 @@ deploy_service() {
   image_name
 
   echo
-  echo "Deploying Cloud Run service [$service_name]..."
+  echo "=========================================="
+  echo "Deploying [$service_name]"
+  echo "=========================================="
+  echo
 
-  # Deploy the Cloud Run service
+  # Deploy Cloud Run service
+  #
+  # Service-level scaling:
+  #   Minimum = 1
+  #   Maximum = 16
+  #
+  # Revision-level scaling:
+  #   Minimum = 1
+  #   Maximum = 16
   gcloud run deploy "$service_name" \
     --image "$IMAGE" \
     --platform managed \
@@ -103,21 +118,33 @@ deploy_service() {
     --concurrency "$CONCURRENCY" \
     --min "$MIN_INSTANCES" \
     --max "$MAX_INSTANCES" \
+    --min-instances "$MIN_INSTANCES" \
+    --max-instances "$MAX_INSTANCES" \
     --timeout "$TIMEOUT" \
     --set-env-vars "BACKEND=$BACKEND"
+
+  echo
+  echo "Applying custom autoscaling targets to [$service_name]..."
+  echo
 
   # Apply custom autoscaling targets
   gcloud beta run services update "$service_name" \
     --region "$REGION" \
+    --min-instances "$MIN_INSTANCES" \
+    --max-instances "$MAX_INSTANCES" \
     --scaling-cpu-target="$CPU_TARGET" \
     --scaling-concurrency-target="$CONCURRENCY_TARGET"
 
   echo
-  echo "Done. Cloud Run URL for [$service_name]:"
+  echo "Deployment completed for [$service_name]."
+  echo
+  echo "Cloud Run URL:"
 
   gcloud run services describe "$service_name" \
     --region "$REGION" \
     --format="value(status.url)"
+
+  echo
 }
 
 
@@ -128,112 +155,37 @@ deploy_all_services() {
 }
 
 
-update_config_only() {
-  for service_name in "${SERVICE_NAMES[@]}"; do
+# ============================================================
+# AUTO DEPLOY
+# ============================================================
 
-    echo
-    echo "Updating [$service_name]..."
+REGION="$DEFAULT_REGION"
 
-    if ! service_exists "$service_name"; then
-      echo "Service [$service_name] was not found in region [$REGION]."
+echo
+echo "=========================================="
+echo "Cloud Run Automatic Deployment"
+echo "=========================================="
+echo
+echo "Region:              $REGION"
+echo "Services:            ${SERVICE_NAMES[*]}"
+echo "Backend:             $BACKEND"
+echo "Memory:              $MEMORY"
+echo "CPU:                 $CPU"
+echo "Concurrency:         $CONCURRENCY"
+echo "Min Instances:       $MIN_INSTANCES"
+echo "Max Instances:       $MAX_INSTANCES"
+echo "CPU Target:          $CPU_TARGET"
+echo "Concurrency Target:  $CONCURRENCY_TARGET"
+echo "Timeout:             $TIMEOUT"
+echo
 
-      read -r -p "Install/redeploy [$service_name] now? [y/N]: " install_now
+enable_services
+ensure_repo
+build_image
+deploy_all_services
 
-      case "$install_now" in
-        y|Y|yes|YES)
-          deploy_service "$service_name"
-          ;;
-
-        *)
-          echo "Skipping [$service_name]."
-          ;;
-      esac
-
-      continue
-    fi
-
-    gcloud run services update "$service_name" \
-      --region "$REGION" \
-      --set-env-vars "BACKEND=$BACKEND"
-
-    echo "Backend updated for [$service_name]."
-  done
-}
-
-
-delete_all() {
-  for service_name in "${SERVICE_NAMES[@]}"; do
-
-    if ! service_exists "$service_name"; then
-      echo "Service [$service_name] was not found in region [$REGION]. Nothing to delete."
-    else
-      echo "Deleting Cloud Run service [$service_name]..."
-
-      gcloud run services delete "$service_name" \
-        --region "$REGION" \
-        --quiet
-    fi
-
-  done
-
-  if gcloud artifacts repositories describe "$REPO_NAME" \
-    --location="$REGION" >/dev/null 2>&1; then
-
-    echo "Deleting Artifact Registry repository [$REPO_NAME]..."
-
-    gcloud artifacts repositories delete "$REPO_NAME" \
-      --location="$REGION" \
-      --quiet
-
-  else
-    echo "Repository [$REPO_NAME] was not found in region [$REGION]. Nothing to delete."
-  fi
-}
-
-
-while true; do
-  echo
-  echo "Cloud Run Proxy Menu"
-  echo "1) Deploy"
-  echo "2) Change Host"
-  echo "3) Delete all"
-  echo "4) Exit"
-
-  read -r -p "Choose: " action
-
-  echo
-
-  case "$action" in
-
-    1)
-      REGION="$DEFAULT_REGION"
-
-      enable_services
-      ensure_repo
-      build_image
-      deploy_all_services
-      ;;
-
-    2)
-      REGION="$DEFAULT_REGION"
-
-      read_backend_config
-      update_config_only
-      ;;
-
-    3)
-      REGION="$DEFAULT_REGION"
-
-      delete_all
-      ;;
-
-    4)
-      exit 0
-      ;;
-
-    *)
-      echo "Invalid choice."
-      ;;
-
-  esac
-done
+echo
+echo "=========================================="
+echo "All deployments completed successfully."
+echo "=========================================="
+echo
