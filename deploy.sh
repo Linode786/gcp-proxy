@@ -84,7 +84,8 @@ build_image() {
 deploy_service() {
   image_name
 
-  gcloud beta run deploy "$SERVICE_NAME" \
+  # Deploy the Cloud Run service
+  gcloud run deploy "$SERVICE_NAME" \
     --image "$IMAGE" \
     --platform managed \
     --region "$REGION" \
@@ -93,12 +94,16 @@ deploy_service() {
     --memory "$MEMORY" \
     --cpu "$CPU" \
     --concurrency "$CONCURRENCY" \
-    --min-instances "$MIN_INSTANCES" \
-    --max-instances "$MAX_INSTANCES" \
+    --min "$MIN_INSTANCES" \
+    --max "$MAX_INSTANCES" \
     --timeout "$TIMEOUT" \
-    --scaling-cpu-target "$CPU_TARGET" \
-    --scaling-concurrency-target "$CONCURRENCY_TARGET" \
     --set-env-vars "BACKEND=$BACKEND"
+
+  # Apply custom autoscaling targets
+  gcloud beta run services update "$SERVICE_NAME" \
+    --region "$REGION" \
+    --scaling-cpu-target="$CPU_TARGET" \
+    --scaling-concurrency-target="$CONCURRENCY_TARGET"
 
   echo
   echo "Done. Your Cloud Run URL:"
@@ -107,7 +112,6 @@ deploy_service() {
     --region "$REGION" \
     --format="value(status.url)"
 }
-
 
 update_config_only() {
   if ! service_exists; then
