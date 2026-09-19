@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SERVICE_NAME="erwan"
+SERVICE_NAMES=("erwan1" "erwan2")
 REPO_NAME="viper-panel-repo"
 DEFAULT_REGION="us-central1"
 BACKEND="gcpx.dev-zoom.buzz:700"
@@ -26,12 +26,14 @@ read_backend_config() {
 
 
 image_name() {
-  IMAGE="$REGION-docker.pkg.dev/$GOOGLE_CLOUD_PROJECT/$REPO_NAME/$SERVICE_NAME:latest"
+  IMAGE="$REGION-docker.pkg.dev/$GOOGLE_CLOUD_PROJECT/$REPO_NAME/erwan:latest"
 }
 
 
 service_exists() {
-  gcloud run services describe "$SERVICE_NAME" \
+  local service_name="$1"
+
+  gcloud run services describe "$service_name" \
     --region "$REGION" \
     --format="value(metadata.name)" >/dev/null 2>&1
 }
@@ -82,10 +84,15 @@ build_image() {
 
 
 deploy_service() {
+  local service_name="$1"
+
   image_name
 
+  echo
+  echo "Deploying Cloud Run service [$service_name]..."
+
   # Deploy the Cloud Run service
-  gcloud run deploy "$SERVICE_NAME" \
+  gcloud run deploy "$service_name" \
     --image "$IMAGE" \
     --platform managed \
     --region "$REGION" \
@@ -100,58 +107,79 @@ deploy_service() {
     --set-env-vars "BACKEND=$BACKEND"
 
   # Apply custom autoscaling targets
-  gcloud beta run services update "$SERVICE_NAME" \
+  gcloud beta run services update "$service_name" \
     --region "$REGION" \
     --scaling-cpu-target="$CPU_TARGET" \
     --scaling-concurrency-target="$CONCURRENCY_TARGET"
 
   echo
-  echo "Done. Your Cloud Run URL:"
+  echo "Done. Cloud Run URL for [$service_name]:"
 
-  gcloud run services describe "$SERVICE_NAME" \
+  gcloud run services describe "$service_name" \
     --region "$REGION" \
     --format="value(status.url)"
 }
 
+
+deploy_all_services() {
+  for service_name in "${SERVICE_NAMES[@]}"; do
+    deploy_service "$service_name"
+  done
+}
+
+
 update_config_only() {
-  if ! service_exists; then
-    echo "Service [$SERVICE_NAME] was not found in region [$REGION]."
+  for service_name in "${SERVICE_NAMES[@]}"; do
 
-    read -r -p "Install/redeploy it now? [y/N]: " install_now
+    echo
+    echo "Updating [$service_name]..."
 
-    case "$install_now" in
-      y|Y|yes|YES)
-        enable_services
-        ensure_repo
-        build_image
-        deploy_service
-        ;;
+    if ! service_exists "$service_name"; then
+      echo "Service [$service_name] was not found in region [$REGION]."
 
-      *)
-        echo "Choose option 1 later to install/redeploy the service."
-        ;;
-    esac
+      read -r -p "Install/redeploy [$service_name] now? [y/N]: " install_now
 
-    return 0
-  fi
+      case "$install_now" in
+        y|Y|yes|YES)
+          deploy_service "$service_name"
+          ;;
 
-  gcloud run services update "$SERVICE_NAME" \
-    --region "$REGION" \
-    --set-env-vars "BACKEND=$BACKEND"
+        *)
+          echo "Skipping [$service_name]."
+          ;;
+      esac
+
+      continue
+    fi
+
+    gcloud run services update "$service_name" \
+      --region "$REGION" \
+      --set-env-vars "BACKEND=$BACKEND"
+
+    echo "Backend updated for [$service_name]."
+  done
 }
 
 
 delete_all() {
-  if ! service_exists; then
-    echo "Service [$SERVICE_NAME] was not found in region [$REGION]. Nothing to delete."
-  else
-    gcloud run services delete "$SERVICE_NAME" \
-      --region "$REGION" \
-      --quiet
-  fi
+  for service_name in "${SERVICE_NAMES[@]}"; do
+
+    if ! service_exists "$service_name"; then
+      echo "Service [$service_name] was not found in region [$REGION]. Nothing to delete."
+    else
+      echo "Deleting Cloud Run service [$service_name]..."
+
+      gcloud run services delete "$service_name" \
+        --region "$REGION" \
+        --quiet
+    fi
+
+  done
 
   if gcloud artifacts repositories describe "$REPO_NAME" \
     --location="$REGION" >/dev/null 2>&1; then
+
+    echo "Deleting Artifact Registry repository [$REPO_NAME]..."
 
     gcloud artifacts repositories delete "$REPO_NAME" \
       --location="$REGION" \
@@ -183,7 +211,7 @@ while true; do
       enable_services
       ensure_repo
       build_image
-      deploy_service
+      deploy_all_services
       ;;
 
     2)
