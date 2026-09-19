@@ -5,21 +5,30 @@ SERVICE_NAME="erwan"
 REPO_NAME="viper-panel-repo"
 DEFAULT_REGION="us-central1"
 BACKEND="gcpx.dev-zoom.buzz:700"
-MEMORY="512Mi"
+
+MEMORY="1Gi"
 CPU="1"
-CONCURRENCY="1000"
+CONCURRENCY="450"
+
 MIN_INSTANCES="1"
 MAX_INSTANCES="16"
+
 TIMEOUT="3600"
+
+CPU_TARGET="0.70"
+CONCURRENCY_TARGET="0.40"
+
 
 read_backend_config() {
   read -r -p "Enter backend server [$BACKEND]: " input_backend
   BACKEND="${input_backend:-$BACKEND}"
 }
 
+
 image_name() {
   IMAGE="$REGION-docker.pkg.dev/$GOOGLE_CLOUD_PROJECT/$REPO_NAME/$SERVICE_NAME:latest"
 }
+
 
 service_exists() {
   gcloud run services describe "$SERVICE_NAME" \
@@ -27,12 +36,18 @@ service_exists() {
     --format="value(metadata.name)" >/dev/null 2>&1
 }
 
+
 enable_services() {
-  gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com
+  gcloud services enable \
+    run.googleapis.com \
+    cloudbuild.googleapis.com \
+    artifactregistry.googleapis.com
 }
 
+
 ensure_repo() {
-  if gcloud artifacts repositories describe "$REPO_NAME" --location="$REGION" >/dev/null 2>&1; then
+  if gcloud artifacts repositories describe "$REPO_NAME" \
+    --location="$REGION" >/dev/null 2>&1; then
     return 0
   fi
 
@@ -42,25 +57,34 @@ ensure_repo() {
     --description="Cloud Run proxy images"
 
   echo "Waiting for Artifact Registry repository..."
+
   for _ in 1 2 3 4 5 6 7 8 9 10; do
-    if gcloud artifacts repositories describe "$REPO_NAME" --location="$REGION" >/dev/null 2>&1; then
+    if gcloud artifacts repositories describe "$REPO_NAME" \
+      --location="$REGION" >/dev/null 2>&1; then
       return 0
     fi
+
     sleep 3
   done
 
-  echo "Repository [$REPO_NAME] was created but is not ready yet. Run deploy again in a few seconds."
+  echo "Repository [$REPO_NAME] was created but is not ready yet."
+  echo "Run deploy again in a few seconds."
   exit 1
 }
 
+
 build_image() {
   image_name
-  gcloud builds submit --tag "$IMAGE"
+
+  gcloud builds submit \
+    --tag "$IMAGE"
 }
+
 
 deploy_service() {
   image_name
-  gcloud run deploy "$SERVICE_NAME" \
+
+  gcloud beta run deploy "$SERVICE_NAME" \
     --image "$IMAGE" \
     --platform managed \
     --region "$REGION" \
@@ -72,19 +96,25 @@ deploy_service() {
     --min-instances "$MIN_INSTANCES" \
     --max-instances "$MAX_INSTANCES" \
     --timeout "$TIMEOUT" \
+    --scaling-cpu-target "$CPU_TARGET" \
+    --scaling-concurrency-target "$CONCURRENCY_TARGET" \
     --set-env-vars "BACKEND=$BACKEND"
 
   echo
   echo "Done. Your Cloud Run URL:"
+
   gcloud run services describe "$SERVICE_NAME" \
     --region "$REGION" \
     --format="value(status.url)"
 }
 
+
 update_config_only() {
   if ! service_exists; then
     echo "Service [$SERVICE_NAME] was not found in region [$REGION]."
+
     read -r -p "Install/redeploy it now? [y/N]: " install_now
+
     case "$install_now" in
       y|Y|yes|YES)
         enable_services
@@ -92,10 +122,12 @@ update_config_only() {
         build_image
         deploy_service
         ;;
+
       *)
         echo "Choose option 1 later to install/redeploy the service."
         ;;
     esac
+
     return 0
   fi
 
@@ -103,6 +135,7 @@ update_config_only() {
     --region "$REGION" \
     --set-env-vars "BACKEND=$BACKEND"
 }
+
 
 delete_all() {
   if ! service_exists; then
@@ -113,14 +146,18 @@ delete_all() {
       --quiet
   fi
 
-  if gcloud artifacts repositories describe "$REPO_NAME" --location="$REGION" >/dev/null 2>&1; then
+  if gcloud artifacts repositories describe "$REPO_NAME" \
+    --location="$REGION" >/dev/null 2>&1; then
+
     gcloud artifacts repositories delete "$REPO_NAME" \
       --location="$REGION" \
       --quiet
+
   else
     echo "Repository [$REPO_NAME] was not found in region [$REGION]. Nothing to delete."
   fi
 }
+
 
 while true; do
   echo
@@ -129,31 +166,42 @@ while true; do
   echo "2) Change Host"
   echo "3) Delete all"
   echo "4) Exit"
+
   read -r -p "Choose: " action
+
   echo
 
   case "$action" in
+
     1)
       REGION="$DEFAULT_REGION"
+
       enable_services
       ensure_repo
       build_image
       deploy_service
       ;;
+
     2)
       REGION="$DEFAULT_REGION"
+
       read_backend_config
       update_config_only
       ;;
+
     3)
       REGION="$DEFAULT_REGION"
+
       delete_all
       ;;
+
     4)
       exit 0
       ;;
+
     *)
       echo "Invalid choice."
       ;;
+
   esac
 done
