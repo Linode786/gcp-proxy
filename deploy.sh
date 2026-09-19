@@ -7,10 +7,10 @@ DEFAULT_REGION="us-central1"
 BACKEND="gcpx.dev-zoom.buzz:700"
 MEMORY="512Mi"
 CPU="1"
-CONCURRENCY="100"
+CONCURRENCY="1000"
 MIN_INSTANCES="1"
 MAX_INSTANCES="16"
-TIMEOUT="600"
+TIMEOUT="3600"
 
 read_backend_config() {
   read -r -p "Enter backend server [$BACKEND]: " input_backend
