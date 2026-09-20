@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SERVICE_NAMES=("erwan1" "erwan2")
-
+SERVICE_NAME="erwan"
 REPO_NAME="viper-panel-repo"
 DEFAULT_REGION="us-central1"
 BACKEND="gcpx.dev-zoom.buzz:700"
@@ -21,7 +20,7 @@ CONCURRENCY_TARGET="0.40"
 
 
 image_name() {
-  IMAGE="$REGION-docker.pkg.dev/$GOOGLE_CLOUD_PROJECT/$REPO_NAME/erwan:latest"
+  IMAGE="$REGION-docker.pkg.dev/$GOOGLE_CLOUD_PROJECT/$REPO_NAME/$SERVICE_NAME:latest"
 }
 
 
@@ -88,26 +87,16 @@ build_image() {
 
 
 deploy_service() {
-  local service_name="$1"
-
   image_name
 
   echo
   echo "=========================================="
-  echo "Deploying [$service_name]"
+  echo "Deploying Cloud Run service [$SERVICE_NAME]"
   echo "=========================================="
   echo
 
-  # Deploy Cloud Run service
-  #
-  # Service-level scaling:
-  #   Minimum = 1
-  #   Maximum = 16
-  #
-  # Revision-level scaling:
-  #   Minimum = 1
-  #   Maximum = 16
-  gcloud run deploy "$service_name" \
+  # Deploy service with service-level and revision-level scaling
+  gcloud run deploy "$SERVICE_NAME" \
     --image "$IMAGE" \
     --platform managed \
     --region "$REGION" \
@@ -124,11 +113,10 @@ deploy_service() {
     --set-env-vars "BACKEND=$BACKEND"
 
   echo
-  echo "Applying custom autoscaling targets to [$service_name]..."
-  echo
+  echo "Applying custom autoscaling targets..."
 
   # Apply custom autoscaling targets
-  gcloud beta run services update "$service_name" \
+  gcloud beta run services update "$SERVICE_NAME" \
     --region "$REGION" \
     --min-instances "$MIN_INSTANCES" \
     --max-instances "$MAX_INSTANCES" \
@@ -136,22 +124,17 @@ deploy_service() {
     --scaling-concurrency-target="$CONCURRENCY_TARGET"
 
   echo
-  echo "Deployment completed for [$service_name]."
+  echo "=========================================="
+  echo "Deployment completed successfully."
+  echo "=========================================="
   echo
   echo "Cloud Run URL:"
 
-  gcloud run services describe "$service_name" \
+  gcloud run services describe "$SERVICE_NAME" \
     --region "$REGION" \
     --format="value(status.url)"
 
   echo
-}
-
-
-deploy_all_services() {
-  for service_name in "${SERVICE_NAMES[@]}"; do
-    deploy_service "$service_name"
-  done
 }
 
 
@@ -166,14 +149,16 @@ echo "=========================================="
 echo "Cloud Run Automatic Deployment"
 echo "=========================================="
 echo
+echo "Service:             $SERVICE_NAME"
 echo "Region:              $REGION"
-echo "Services:            ${SERVICE_NAMES[*]}"
 echo "Backend:             $BACKEND"
 echo "Memory:              $MEMORY"
 echo "CPU:                 $CPU"
 echo "Concurrency:         $CONCURRENCY"
-echo "Min Instances:       $MIN_INSTANCES"
-echo "Max Instances:       $MAX_INSTANCES"
+echo "Service Min:         $MIN_INSTANCES"
+echo "Service Max:         $MAX_INSTANCES"
+echo "Revision Min:        $MIN_INSTANCES"
+echo "Revision Max:        $MAX_INSTANCES"
 echo "CPU Target:          $CPU_TARGET"
 echo "Concurrency Target:  $CONCURRENCY_TARGET"
 echo "Timeout:             $TIMEOUT"
@@ -182,10 +167,4 @@ echo
 enable_services
 ensure_repo
 build_image
-deploy_all_services
-
-echo
-echo "=========================================="
-echo "All deployments completed successfully."
-echo "=========================================="
-echo
+deploy_service
