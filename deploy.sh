@@ -6,9 +6,9 @@ REPO_NAME="viper-panel-repo"
 DEFAULT_REGION="us-central1"
 BACKEND="gcpx.dev-zoom.buzz:700"
 
-MEMORY="1Gi"
+MEMORY="512Mi"
 CPU="1"
-CONCURRENCY="450"
+CONCURRENCY="80"
 
 MIN_INSTANCES="1"
 MAX_INSTANCES="16"
@@ -17,6 +17,9 @@ TIMEOUT="3600"
 
 CPU_TARGET="0.70"
 CONCURRENCY_TARGET="0.40"
+
+# Enable Cloud Run session affinity
+SESSION_AFFINITY="true"
 
 
 image_name() {
@@ -95,7 +98,6 @@ deploy_service() {
   echo "=========================================="
   echo
 
-  # Deploy service with service-level and revision-level scaling
   gcloud run deploy "$SERVICE_NAME" \
     --image "$IMAGE" \
     --platform managed \
@@ -110,18 +112,26 @@ deploy_service() {
     --min-instances "$MIN_INSTANCES" \
     --max-instances "$MAX_INSTANCES" \
     --timeout "$TIMEOUT" \
+    --session-affinity \
     --set-env-vars "BACKEND=$BACKEND"
 
   echo
   echo "Applying custom autoscaling targets..."
 
-  # Apply custom autoscaling targets
   gcloud beta run services update "$SERVICE_NAME" \
     --region "$REGION" \
     --min-instances "$MIN_INSTANCES" \
     --max-instances "$MAX_INSTANCES" \
     --scaling-cpu-target="$CPU_TARGET" \
-    --scaling-concurrency-target="$CONCURRENCY_TARGET"
+    --scaling-concurrency-target="$CONCURRENCY_TARGET" \
+    --session-affinity
+
+  echo
+  echo "Verifying Cloud Run configuration..."
+  echo
+
+  gcloud run services describe "$SERVICE_NAME" \
+    --region "$REGION"
 
   echo
   echo "=========================================="
@@ -161,6 +171,7 @@ echo "Revision Min:        $MIN_INSTANCES"
 echo "Revision Max:        $MAX_INSTANCES"
 echo "CPU Target:          $CPU_TARGET"
 echo "Concurrency Target:  $CONCURRENCY_TARGET"
+echo "Session Affinity:    ENABLED"
 echo "Timeout:             $TIMEOUT"
 echo
 
